@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
 import io
+import os
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
 
 # ─────────────────────────────────────────────
 # 1. PREMIUM UI/UX STYLING
@@ -19,29 +19,25 @@ def apply_custom_styles():
         .stButton>button { 
             width: 100%; border-radius: 10px; height: 3.5em; 
             background-color: #004aad; color: white; font-weight: bold; border: none;
-            transition: 0.3s;
         }
-        .stButton>button:hover { background-color: #003580; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
         .card { 
             background-color: white; padding: 25px; border-radius: 15px; 
             box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; margin-bottom: 25px;
         }
-        h1, h2, h3 { color: #004aad; font-family: 'Inter', sans-serif; }
+        h1, h2, h3 { color: #004aad; }
         </style>
     """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
 # 2. DATA ENGINE (FIXED CACHING)
 # ─────────────────────────────────────────────
-@st.cache_resource  # Changed from cache_data to fix serialization error
+@st.cache_resource
 def load_resources():
     try:
-        # Load Questions Data
         q_xls = pd.ExcelFile("University Readiness_new.xlsx")
         q_idx = q_xls.parse(q_xls.sheet_names[0])
         q_map = dict(zip(q_idx.iloc[:,0], q_idx.iloc[:,1]))
         
-        # Load Benchmarking Data
         b_xls = pd.ExcelFile("Benchmarking_USA.xlsx")
         b_idx = b_xls.parse(b_xls.sheet_names[0])
         b_map = dict(zip(b_idx.iloc[:,0], b_idx.iloc[:,1]))
@@ -52,7 +48,7 @@ def load_resources():
         st.stop()
 
 # ─────────────────────────────────────────────
-# 3. STRATEGIC PDF GENERATOR (9-LIST LOGIC)
+# 3. STRATEGIC PDF GENERATOR
 # ─────────────────────────────────────────────
 def generate_strategic_report(state, counsellor_name):
     buffer = io.BytesIO()
@@ -60,29 +56,26 @@ def generate_strategic_report(state, counsellor_name):
     styles = getSampleStyleSheet()
     
     title_style = ParagraphStyle('T', parent=styles['Title'], textColor=colors.HexColor("#004aad"), fontSize=22)
-    sec_style = ParagraphStyle('Sec', parent=styles['Heading2'], textColor=colors.HexColor("#333333"), spaceBefore=15)
-    
     elements = []
 
-    # Logo
-    try:
-        logo = Image("Uppseekers Logo.png", width=150, height=45)
-        logo.hAlign = 'LEFT'
-        elements.append(logo)
-        elements.append(Spacer(1, 20))
-    except: pass
+    # LOGO FIX: Only add if file exists to prevent OSError
+    logo_path = "Uppseekers Logo.png"
+    if os.path.exists(logo_path):
+        try:
+            logo = Image(logo_path, width=150, height=45)
+            logo.hAlign = 'LEFT'
+            elements.append(logo)
+            elements.append(Spacer(1, 20))
+        except:
+            pass
 
     elements.append(Paragraph(f"Admit AI Strategic Profile Report", title_style))
-    elements.append(Paragraph(f"<b>Student:</b> {state.name} | <b>Class:</b> {state.s_class}", styles['Normal']))
+    elements.append(Paragraph(f"<b>Student:</b> {state.name}", styles['Normal']))
     elements.append(Paragraph(f"<b>Target Course:</b> {state.course} | <b>Counsellor:</b> {counsellor_name}", styles['Normal']))
     elements.append(Spacer(1, 20))
 
-    # Profile Summary
-    elements.append(Paragraph(f"Overall Profile Strength Score: {round(state.total_score, 1)}", sec_style))
-    elements.append(Spacer(1, 15))
-
-    # SECTION 1: Question-wise Gap Analysis
-    elements.append(Paragraph("1. Improvement Scope Analysis", styles['Heading3']))
+    # SECTION 1: Improvement Scope Analysis
+    elements.append(Paragraph("1. Detailed Improvement Scope Analysis", styles['Heading3']))
     q_data = [["Assessment Domain", "Score", "Ideal", "Gap Analysis"]]
     for i, (q_text, ans, s) in enumerate(state.responses):
         ideal = state.q_bench.get(f"Q{i+1}", 0)
@@ -100,8 +93,8 @@ def generate_strategic_report(state, counsellor_name):
     elements.append(qt)
     elements.append(PageBreak())
 
-    # SECTION 2: 9-LIST CURATION (3x3 Matrix)
-    elements.append(Paragraph("2. Strategic University Curation (9 Lists)", sec_style))
+    # SECTION 2: 9-LIST CURATION
+    elements.append(Paragraph("2. Strategic University Curation (9 Lists)", styles['Heading2']))
     
     def add_list_table(df, title, color):
         if not df.empty:
@@ -113,18 +106,14 @@ def generate_strategic_report(state, counsellor_name):
             ut.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0), color), ('TEXTCOLOR',(0,0),(-1,0), colors.whitesmoke), ('GRID',(0,0),(-1,-1),0.5,colors.black)]))
             elements.append(ut)
             elements.append(Spacer(1, 12))
-        else:
-            elements.append(Paragraph(f"<i>No data available for {title} in current benchmarks.</i>", styles['Italic']))
-            elements.append(Spacer(1, 10))
 
     for country in state.countries:
         elements.append(Paragraph(f"Target Region: {country}", styles['Heading3']))
-        # Filtering logic
         c_df = state.bench_df[state.bench_df["Country"] == country] if "Country" in state.bench_df.columns else state.bench_df
         
-        # Continuous Bucket Logic to prevent empty lists
-        safe = c_df[c_df["Score Gap %"] >= -2]
-        target = c_df[(c_df["Score Gap %"] < -2) & (c_df["Score Gap %"] >= -15)]
+        # Ranges: Safe (>= -3), Target (-3 to -15), Dream (< -15)
+        safe = c_df[c_df["Score Gap %"] >= -3]
+        target = c_df[(c_df["Score Gap %"] < -3) & (c_df["Score Gap %"] >= -15)]
         dream = c_df[c_df["Score Gap %"] < -15]
 
         add_list_table(safe, f"Safe - {country}", colors.darkgreen)
@@ -149,14 +138,14 @@ if st.session_state.page == 'intro':
     with st.container():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         name = st.text_input("Student Name")
-        s_class = st.selectbox("Current Class", ["9", "10", "11", "12"])
         country_list = ["USA", "UK", "Canada", "Singapore", "Australia", "Europe"]
         pref_countries = st.multiselect("Preferred Countries (Max 3)", country_list, max_selections=3)
         course = st.selectbox("Interested Course", list(q_map.keys()))
         if st.button("Start Analysis"):
             if name and pref_countries:
-                st.session_state.update({"name": name, "s_class": s_class, "course": course, "countries": pref_countries, "page": 'questions'})
+                st.session_state.update({"name": name, "course": course, "countries": pref_countries, "page": 'questions'})
                 st.rerun()
+            else: st.warning("Name and Countries are required.")
         st.markdown('</div>', unsafe_allow_html=True)
 
 elif st.session_state.page == 'questions':
@@ -166,8 +155,8 @@ elif st.session_state.page == 'questions':
     
     for idx, row in q_df.iterrows():
         st.markdown(f"**Q{int(row['question_id'])}. {row['question_text']}**")
-        opts = ["None / Not Applicable"]
-        v_map = {"None / Not Applicable": 0}
+        opts = ["None / Not Selected"]
+        v_map = {"None / Not Selected": 0}
         for c in 'ABCDE':
             text = row.get(f'option_{c}')
             if pd.notna(text):
