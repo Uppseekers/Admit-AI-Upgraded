@@ -26,19 +26,21 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# 2. DATA LOADING (CLEANED)
+# 2. DATA LOADING (ROBUST MATCHING)
 # ─────────────────────────────────────────────
 @st.cache_data
 def load_resources():
     try:
-        # Note: Using your latest uploaded file names
+        # Load Questions Mapping
         q_xls = pd.ExcelFile("University Readiness_new.xlsx")
         q_idx = q_xls.parse(q_xls.sheet_names[0])
-        q_map = dict(zip(q_idx.iloc[:,0], q_idx.iloc[:,1]))
+        q_map = {str(k).strip(): str(v).strip() for k, v in zip(q_idx.iloc[:,0], q_idx.iloc[:,1])}
         
+        # Load Benchmarking Mapping (v3)
         b_xls = pd.ExcelFile("Benchmarking_USA (3).xlsx")
         b_idx = b_xls.parse(b_xls.sheet_names[0])
-        b_map = dict(zip(b_idx.iloc[:,0], b_idx.iloc[:,1]))
+        # Clean the mapping to prevent KeyErrors
+        b_map = {str(k).strip(): str(v).strip() for k, v in zip(b_idx.iloc[:,0], b_idx.iloc[:,1])}
         
         return q_map, b_map
     except Exception as e:
@@ -46,7 +48,7 @@ def load_resources():
         return {}, {}
 
 # ─────────────────────────────────────────────
-# 3. PDF GENERATOR (COMPARATIVE STRATEGY)
+# 3. PDF GENERATOR
 # ─────────────────────────────────────────────
 def generate_comparison_pdf(state, tuned_score, counsellor_name, tuned_bench):
     buffer = io.BytesIO()
@@ -70,7 +72,6 @@ def generate_comparison_pdf(state, tuned_score, counsellor_name, tuned_bench):
     
     for country in state.countries:
         elements.append(Paragraph(f"Regional Strategy: {country}", styles['Heading3']))
-        # Use robust filtering to handle Singapore, UK, etc.
         c_df = tuned_bench[tuned_bench["Country"].str.strip().str.lower() == country.strip().lower()] if "Country" in tuned_bench.columns else tuned_bench
         
         for title, df_cat, color in [("Safe", c_df[c_df["Gap %"] >= -3], colors.darkgreen), 
@@ -79,7 +80,7 @@ def generate_comparison_pdf(state, tuned_score, counsellor_name, tuned_bench):
             elements.append(Paragraph(title, ParagraphStyle('B', parent=styles['Heading4'], textColor=color)))
             if not df_cat.empty:
                 data = [["University", "Bench Score", "Gap After Tuning"]]
-                for _, r in df_cat.sort_values("Gap %", ascending=False).head(5).iterrows():
+                for _, r in df_cat.sort_values("Gap %", ascending=False).head(8).iterrows():
                     data.append([r["University"], str(round(r["Total Benchmark Score"], 1)), f"{round(r['Gap %'], 1)}%"])
                 t = Table(data, colWidths=[300, 80, 70])
                 t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0), color), ('TEXTCOLOR',(0,0),(-1,0), colors.whitesmoke), ('GRID',(0,0),(-1,-1),0.5,colors.black)]))
@@ -104,18 +105,17 @@ if st.session_state.page == 'intro':
     with st.container():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         name = st.text_input("Student Name")
-        country_list = ["USA", "UK", "Canada", "Singapore", "Australia", "Europe"]
+        country_list = ["USA", "UK", "Canada", "Singapore", "Australia", "Germany"]
         pref_countries = st.multiselect("Select Target Countries (Max 3)", country_list, max_selections=3)
         course = st.selectbox("Interested Major", list(q_map.keys()))
         if st.button("Start Analysis"):
             if name and pref_countries:
-                st.session_state.update({"name": name, "course": course, "countries": pref_countries, "page": 'assessment'})
+                st.session_state.update({"name": name, "course": course.strip(), "countries": pref_countries, "page": 'assessment'})
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
 elif st.session_state.page == 'assessment':
     col_left, col_right = st.columns([0.6, 0.4])
-    # Open the specific question set
     q_df = pd.read_excel("University Readiness_new.xlsx", sheet_name=q_map[st.session_state.course])
     
     with col_left:
@@ -136,19 +136,28 @@ elif st.session_state.page == 'assessment':
             current_responses.append((row['question_text'], sel, v_map[sel], row['question_id']))
         
         if st.button("Finalize & Compare Profiles"):
-            # Load benchmarking (using the latest file v3)
-            bench_raw = pd.read_excel("Benchmarking_USA (3).xlsx", sheet_name=b_map[st.session_state.course])
-            st.session_state.update({"current_total": current_score, "current_responses": current_responses, "bench_raw": bench_raw, "page": 'tuner'})
-            st.rerun()
+            course_key = st.session_state.course
+            if course_key in b_map:
+                bench_sheet = b_map[course_key]
+                # Fix for common naming mismatch in Finance sheet
+                if "finance" in bench_sheet.lower() and "eco" in bench_sheet.lower():
+                    bench_sheet = "benchmarking_finance&economic"
+                
+                try:
+                    bench_raw = pd.read_excel("Benchmarking_USA (3).xlsx", sheet_name=bench_sheet)
+                    st.session_state.update({"current_total": current_score, "current_responses": current_responses, "bench_raw": bench_raw, "page": 'tuner'})
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Sheet '{bench_sheet}' not found in Benchmarking file. Please check Excel sheet names.")
+            else:
+                st.error(f"Course '{course_key}' not found in Benchmarking Index. Available: {list(b_map.keys())}")
 
     with col_right:
         st.markdown(f"<div class='score-box'><h3>Current Profile Score</h3><h1>{round(current_score, 1)}</h1></div>", unsafe_allow_html=True)
-        st.markdown("")
         st.info("The profile is measured against Global Benchmark Standards across 10 critical domains.")
 
 elif st.session_state.page == 'tuner':
     st.title("⚖️ Strategic Comparison & Tuner")
-    
     col_tune, col_comp = st.columns([0.5, 0.5])
     q_df = pd.read_excel("University Readiness_new.xlsx", sheet_name=q_map[st.session_state.course])
     
@@ -164,45 +173,30 @@ elif st.session_state.page == 'tuner':
                 if pd.notna(label_text):
                     label = f"{c}) {str(label_text).strip()}"
                     opts.append(label); v_map[label] = row.get(f'score_{c}', 0)
-            
             st.markdown(f"**{q_text}**")
-            st.caption(f"Current selection: {orig_sel}")
-            tuned_sel = st.selectbox(f"Counsellor Improvement Plan", opts, index=opts.index(orig_sel), key=f"t{q_id}")
+            tuned_sel = st.selectbox(f"Improvement Plan", opts, index=opts.index(orig_sel), key=f"t{q_id}")
             tuned_score += v_map[tuned_sel]
 
     with col_comp:
         st.subheader("📊 Numerical Impact Dashboard")
-        diff = tuned_score - st.session_state.current_total
-        
-        # Calculate comparison metrics
         curr_b = st.session_state.bench_raw.copy()
         curr_b["Gap %"] = ((st.session_state.current_total - curr_b["Total Benchmark Score"]) / curr_b["Total Benchmark Score"]) * 100
-        
         plan_b = st.session_state.bench_raw.copy()
         plan_b["Gap %"] = ((tuned_score - plan_b["Total Benchmark Score"]) / plan_b["Total Benchmark Score"]) * 100
 
         m1, m2 = st.columns(2)
         m1.metric("Current Score", round(st.session_state.current_total, 1))
-        m2.metric("Planned Score", round(tuned_score, 1), delta=f"+{round(diff, 1)}")
+        m2.metric("Planned Score", round(tuned_score, 1), delta=f"+{round(tuned_score - st.session_state.current_total, 1)}")
 
-        st.divider()
-        
         for country in st.session_state.countries:
             st.markdown(f"#### 🚩 {country} Strategy Comparison")
-            # Robust filtering for Singapore and others
             cb = curr_b[curr_b["Country"].str.strip().str.lower() == country.strip().lower()] if "Country" in curr_b.columns else curr_b
             pb = plan_b[plan_b["Country"].str.strip().str.lower() == country.strip().lower()] if "Country" in plan_b.columns else plan_b
             
-            # Numeric Counts
-            sc_curr, sc_plan = len(cb[cb["Gap %"] >= -3]), len(pb[pb["Gap %"] >= -3])
-            tc_curr, tc_plan = len(cb[(cb["Gap %"] < -3) & (cb["Gap %"] >= -15)]), len(pb[(pb["Gap %"] < -3) & (pb["Gap %"] >= -15)])
-            dc_curr, dc_plan = len(cb[cb["Gap %"] < -15]), len(pb[pb["Gap %"] < -15])
-
             c1, c2, c3 = st.columns(3)
-            with c1: st.markdown(f"<p class='comparison-label'>Safe</p><p class='comparison-val'>{sc_curr} → {sc_plan}</p>", unsafe_allow_html=True)
-            with c2: st.markdown(f"<p class='comparison-label'>Target</p><p class='comparison-val'>{tc_curr} → {tc_plan}</p>", unsafe_allow_html=True)
-            with c3: st.markdown(f"<p class='comparison-label'>Dream</p><p class='comparison-val'>{dc_curr} → {dc_plan}</p>", unsafe_allow_html=True)
-            st.divider()
+            with c1: st.markdown(f"<p class='comparison-label'>Safe</p><p class='comparison-val'>{len(cb[cb['Gap %'] >= -3])} → {len(pb[pb['Gap %'] >= -3])}</p>", unsafe_allow_html=True)
+            with c2: st.markdown(f"<p class='comparison-label'>Target</p><p class='comparison-val'>{len(cb[(cb['Gap %'] < -3) & (cb['Gap %'] >= -15)])} → {len(pb[(pb['Gap %'] < -3) & (pb['Gap %'] >= -15)])}</p>", unsafe_allow_html=True)
+            with c3: st.markdown(f"<p class='comparison-label'>Dream</p><p class='comparison-val'>{len(cb[cb['Gap %'] < -15])} → {len(pb[pb['Gap %'] < -15])}</p>", unsafe_allow_html=True)
 
     st.subheader("📥 Secure Report Authorization")
     c_name = st.text_input("Counsellor Name")
@@ -211,4 +205,3 @@ elif st.session_state.page == 'tuner':
         if c_code == "304":
             pdf = generate_comparison_pdf(st.session_state, tuned_score, c_name, plan_b)
             st.download_button("Download Comparative Report", data=pdf, file_name=f"{st.session_state.name}_Comparison.pdf")
-        else: st.error("Invalid Code.")
