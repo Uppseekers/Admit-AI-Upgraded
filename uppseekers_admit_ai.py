@@ -17,7 +17,8 @@ def apply_styles():
         <style>
         .stButton>button { width: 100%; border-radius: 10px; height: 3.5em; background-color: #004aad; color: white; font-weight: bold; border: none; }
         .card { background-color: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); border: 1px solid #f0f0f0; margin-bottom: 25px; }
-        .score-box { background-color: #e8f0fe; padding: 20px; border-radius: 12px; text-align: center; border: 2px solid #004aad; margin-bottom: 20px; }
+        .score-box { background-color: #f8f9fa; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #dee2e6; margin-bottom: 20px; }
+        .delta-plus { color: #28a745; font-weight: bold; font-size: 1.2em; }
         .uni-card { padding: 10px; border-radius: 8px; margin-bottom: 5px; color: white; font-weight: bold; font-size: 0.85em; }
         h1, h2, h3 { color: #004aad; }
         </style>
@@ -43,7 +44,7 @@ def load_resources():
         st.stop()
 
 # ─────────────────────────────────────────────
-# 3. PDF GENERATOR (CURRENT VS PLANNED)
+# 3. PDF GENERATOR (COMPARATIVE REPORT)
 # ─────────────────────────────────────────────
 def generate_comparison_pdf(state, tuned_score, counsellor_name):
     buffer = io.BytesIO()
@@ -58,44 +59,37 @@ def generate_comparison_pdf(state, tuned_score, counsellor_name):
             elements.append(logo); elements.append(Spacer(1, 15))
         except: pass
 
-    elements.append(Paragraph(f"Admit AI Strategy Report: {state.name}", styles['Title']))
-    elements.append(Paragraph(f"<b>Current Score:</b> {round(state.current_total, 1)} | <b>Planned Score:</b> {round(tuned_score, 1)}", styles['Normal']))
+    elements.append(Paragraph(f"Strategic Comparison Report: {state.name}", styles['Title']))
+    elements.append(Paragraph(f"<b>Current Profile Score:</b> {round(state.current_total, 1)}", styles['Normal']))
+    elements.append(Paragraph(f"<b>Planned Strategic Score:</b> {round(tuned_score, 1)}", styles['Normal']))
     elements.append(Paragraph(f"<b>Counsellor:</b> {counsellor_name}", styles['Normal']))
     elements.append(Spacer(1, 20))
 
-    # Improvement Summary
-    elements.append(Paragraph("Strategic Growth Path", styles['Heading2']))
-    elements.append(Paragraph(f"By implementing the tuned changes, the profile strength increases by {round(tuned_score - state.current_total, 1)} points, significantly expanding university eligibility.", styles['Normal']))
+    elements.append(Paragraph("Strategic Impact Analysis", styles['Heading2']))
+    elements.append(Paragraph(f"The proposed strategic adjustments lead to a score increase of {round(tuned_score - state.current_total, 1)} points. This shift reclassifies several 'Dream' universities into 'Target' or 'Safe' categories.", styles['Normal']))
     elements.append(Spacer(1, 15))
 
-    # 9-List Strategy (3 Countries x 3 Categories)
     # Using Tuned Score for the Final Roadmap
     tuned_bench = state.bench_raw.copy()
     tuned_bench["Score Gap %"] = ((tuned_score - tuned_bench["Total Benchmark Score"]) / tuned_bench["Total Benchmark Score"]) * 100
 
     for country in state.countries:
-        elements.append(Paragraph(f"Strategy for {country}", styles['Heading2']))
+        elements.append(Paragraph(f"Regional Strategy: {country}", styles['Heading2']))
         c_df = tuned_bench[tuned_bench["Country"] == country] if "Country" in tuned_bench.columns else tuned_bench
         
-        buckets = [
-            ("Safe (Match)", c_df[c_df["Score Gap %"] >= -3], colors.darkgreen),
-            ("Target (Growth)", c_df[(c_df["Score Gap %"] < -3) & (c_df["Score Gap %"] >= -15)], colors.orange),
-            ("Dream (Reach)", c_df[c_df["Score Gap %"] < -15], colors.red)
-        ]
-
-        for title, df_cat, color in buckets:
+        for title, df_cat, color in [("Safe", c_df[c_df["Score Gap %"] >= -3], colors.darkgreen), 
+                                     ("Target", c_df[(c_df["Score Gap %"] < -3) & (c_df["Score Gap %"] >= -15)], colors.orange), 
+                                     ("Dream", c_df[c_df["Score Gap %"] < -15], colors.red)]:
             elements.append(Paragraph(title, ParagraphStyle('B', parent=styles['Heading4'], textColor=color)))
             if not df_cat.empty:
-                data = [["University", "Bench Score", "Match Gap"]]
+                data = [["University", "Score Req.", "Gap After Tuning"]]
                 for _, r in df_cat.sort_values("Score Gap %", ascending=False).head(5).iterrows():
                     data.append([r["University"], str(round(r["Total Benchmark Score"], 1)), f"{round(r['Score Gap %'], 1)}%"])
                 t = Table(data, colWidths=[300, 80, 70])
                 t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0), color), ('TEXTCOLOR',(0,0),(-1,0), colors.whitesmoke), ('GRID',(0,0),(-1,-1),0.5,colors.black)]))
                 elements.append(t)
-            else:
-                elements.append(Paragraph("No current matches found.", styles['Italic']))
+            else: elements.append(Paragraph("No current matches.", styles['Italic']))
             elements.append(Spacer(1, 10))
-        elements.append(Spacer(1, 10))
 
     doc.build(elements)
     buffer.seek(0)
@@ -115,7 +109,7 @@ if st.session_state.page == 'intro':
         st.markdown('<div class="card">', unsafe_allow_html=True)
         name = st.text_input("Student Name")
         country_list = ["USA", "UK", "Canada", "Singapore", "Australia", "Europe"]
-        pref_countries = st.multiselect("Preferred Target Countries (Select 3)", country_list, max_selections=3)
+        pref_countries = st.multiselect("Select Target Countries (Select 3)", country_list, max_selections=3)
         course = st.selectbox("Interested Major", list(q_map.keys()))
         if st.button("Start Analysis"):
             if name and pref_countries:
@@ -128,7 +122,7 @@ elif st.session_state.page == 'assessment':
     q_df = q_xls.parse(q_map[st.session_state.course])
     
     with col_left:
-        st.header(f"Phase 1: Current Profile Assessment")
+        st.header(f"Assessment: {st.session_state.course}")
         current_score = 0
         current_responses = []
         for idx, row in q_df.iterrows():
@@ -139,11 +133,11 @@ elif st.session_state.page == 'assessment':
                 if pd.notna(row.get(f'option_{c}')):
                     label = f"{c}) {str(row[f'option_{c}']).strip()}"
                     opts.append(label); v_map[label] = row[f'score_{c}']
-            sel = st.selectbox("Current Status", opts, key=f"q{idx}")
+            sel = st.selectbox("Current Level", opts, key=f"q{idx}")
             current_score += v_map[sel]
             current_responses.append((row['question_text'], sel, v_map[sel], row['question_id']))
         
-        if st.button("Finalize & Proceed to Tuning"):
+        if st.button("Finalize & Compare Profiles"):
             bench_raw = b_xls.parse(b_map[st.session_state.course])
             st.session_state.update({"current_total": current_score, "current_responses": current_responses, "bench_raw": bench_raw, "page": 'tuner'})
             st.rerun()
@@ -151,18 +145,19 @@ elif st.session_state.page == 'assessment':
     with col_right:
         st.markdown(f"<div class='score-box'><h3>Current Score</h3><h1>{round(current_score, 1)}</h1></div>", unsafe_allow_html=True)
         
-        st.info("The Live Score above represents your current readiness based on US, UK, and Singapore admission benchmarks.")
+        st.info("The profile is measured against Global Benchmark Standards across 10 critical domains.")
 
 elif st.session_state.page == 'tuner':
-    st.title("🔧 Phase 2: Strategic Growth & 9-List Strategy")
-    st.markdown("##### Compare your **Current Profile** against your **Planned Improvements** and view the impact on your university lists.")
+    st.title("⚖️ Comparative Profile Tuner")
+    st.markdown("##### Side-by-side comparison of the **Current Profile** vs. the **Counsellor’s Strategic Plan**.")
     
-    col_tune, col_res = st.columns([0.5, 0.5])
+    col_tune, col_comp = st.columns([0.5, 0.5])
     q_df = q_xls.parse(q_map[st.session_state.course])
     
     with col_tune:
-        st.subheader("Counsellor Tuning")
+        st.subheader("🛠️ Strategic Tuning")
         tuned_score = 0
+        tuned_data = []
         for i, (q_text, orig_sel, orig_val, q_id) in enumerate(st.session_state.current_responses):
             row = q_df[q_df['question_id'] == q_id].iloc[0]
             opts = ["None"]
@@ -172,41 +167,55 @@ elif st.session_state.page == 'tuner':
                     label = f"{c}) {str(row[f'option_{c}']).strip()}"
                     opts.append(label); v_map[label] = row[f'score_{c}']
             
-            tuned_sel = st.selectbox(f"Plan: {q_text}", opts, index=opts.index(orig_sel), key=f"t{q_id}")
+            # Tuner UI
+            st.markdown(f"**{q_text}**")
+            st.caption(f"Current: {orig_sel}")
+            tuned_sel = st.selectbox(f"Plan Improvement", opts, index=opts.index(orig_sel), key=f"t{q_id}")
             tuned_score += v_map[tuned_sel]
+            tuned_data.append((q_text, tuned_sel, v_map[tuned_sel]))
 
-    with col_res:
-        st.markdown(f"<div class='score-box' style='background-color:#fff;'><h4>Planned Improvement Score</h4><h1 style='color:#28a745;'>{round(tuned_score, 1)}</h1><p>Original: {round(st.session_state.current_total, 1)}</p></div>", unsafe_allow_html=True)
+    with col_comp:
+        st.subheader("📈 Impact Dashboard")
+        diff = tuned_score - st.session_state.current_total
         
-        st.subheader("Live 9-List Strategy")
-        t_bench = st.session_state.bench_raw.copy()
-        t_bench["Score Gap %"] = ((tuned_score - t_bench["Total Benchmark Score"]) / t_bench["Total Benchmark Score"]) * 100
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Current", round(st.session_state.current_total, 1))
+        c2.metric("Planned", round(tuned_score, 1))
+        c3.metric("Improvement", f"+{round(diff, 1)}", delta_color="normal")
+
+        st.divider()
+        
+        # Calculate Both Benchmarks for Comparison
+        curr_bench = st.session_state.bench_raw.copy()
+        curr_bench["Gap %"] = ((st.session_state.current_total - curr_bench["Total Benchmark Score"]) / curr_bench["Total Benchmark Score"]) * 100
+        
+        plan_bench = st.session_state.bench_raw.copy()
+        plan_bench["Gap %"] = ((tuned_score - plan_bench["Total Benchmark Score"]) / plan_bench["Total Benchmark Score"]) * 100
 
         for country in st.session_state.countries:
-            with st.expander(f"📍 {country} Curation", expanded=True):
-                c_df = t_bench[t_bench["Country"] == country] if "Country" in t_bench.columns else t_bench
-                
-                s_list = c_df[c_df["Score Gap %"] >= -3].head(3)
-                t_list = c_df[(c_df["Score Gap %"] < -3) & (c_df["Score Gap %"] >= -15)].head(3)
-                d_list = c_df[c_df["Score Gap %"] < -15].head(3)
+            st.markdown(f"#### 📍 {country} Strategy")
+            cb = curr_bench[curr_bench["Country"] == country] if "Country" in curr_bench.columns else curr_bench
+            pb = plan_bench[plan_bench["Country"] == country] if "Country" in plan_bench.columns else plan_bench
+            
+            # Compare Counts
+            s_curr, s_plan = len(cb[cb["Gap %"] >= -3]), len(pb[pb["Gap %"] >= -3])
+            t_curr, t_plan = len(cb[(cb["Gap %"] < -3) & (cb["Gap %"] >= -15)]), len(pb[(pb["Gap %"] < -3) & (pb["Gap %"] >= -15)])
+            
+            sc1, sc2 = st.columns(2)
+            sc1.write(f"**Safe Universities:** {s_curr} → **{s_plan}**")
+            sc2.write(f"**Target Universities:** {t_curr} → **{t_plan}**")
+            
+            # Show specific list of newly unlocked colleges
+            new_unis = pb[(pb["Gap %"] >= -3) & (~pb["University"].isin(cb[cb["Gap %"] >= -3]["University"]))]["University"].tolist()
+            if new_unis:
+                st.success(f"Unlocked Safe: {', '.join(new_unis[:3])}...")
+            st.divider()
 
-                if not s_list.empty:
-                    st.markdown("**🟢 Safe**")
-                    for _, r in s_list.iterrows(): st.markdown(f"<div class='uni-card' style='background-color:#28a745;'>{r['University']}</div>", unsafe_allow_html=True)
-                if not t_list.empty:
-                    st.markdown("**🟡 Target**")
-                    for _, r in t_list.iterrows(): st.markdown(f"<div class='uni-card' style='background-color:#ff922b;'>{r['University']}</div>", unsafe_allow_html=True)
-                if not d_list.empty:
-                    st.markdown("**🔴 Dream**")
-                    for _, r in d_list.iterrows(): st.markdown(f"<div class='uni-card' style='background-color:#dc3545;'>{r['University']}</div>", unsafe_allow_html=True)
-
-    st.divider()
-    st.subheader("📥 Authorization & Download")
+    st.subheader("📥 Secure Authorization")
     c_name = st.text_input("Counsellor Name")
     c_code = st.text_input("Access Code", type="password")
-    if st.button("Generate Strategy Report"):
+    if st.button("Generate & Download Comparison PDF"):
         if c_code == "304" and c_name:
             pdf = generate_comparison_pdf(st.session_state, tuned_score, c_name)
-            st.success("Analysis Authorized.")
-            st.download_button("Download Strategy PDF", data=pdf, file_name=f"{st.session_state.name}_Report.pdf")
+            st.download_button("Download Comparative Report", data=pdf, file_name=f"{st.session_state.name}_Comparison.pdf")
         else: st.error("Invalid Code.")
