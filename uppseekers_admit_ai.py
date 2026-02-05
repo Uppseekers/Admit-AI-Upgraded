@@ -25,7 +25,7 @@ def apply_styles():
     """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────
-# 2. DATA LOADING (LATEST V3-2 FILES)
+# 2. DATA LOADING
 # ─────────────────────────────────────────────
 @st.cache_data
 def load_resources():
@@ -51,7 +51,7 @@ def load_resources():
         return {}, {}
 
 # ─────────────────────────────────────────────
-# 3. PDF GENERATOR (RANKED LISTS)
+# 3. PDF GENERATOR (STRATEGIC SORTING)
 # ─────────────────────────────────────────────
 def generate_comparison_pdf(state, tuned_score, counsellor_name, tuned_bench):
     buffer = io.BytesIO()
@@ -71,26 +71,33 @@ def generate_comparison_pdf(state, tuned_score, counsellor_name, tuned_bench):
     elements.append(Paragraph(f"<b>Counsellor:</b> {counsellor_name}", styles['Normal']))
     elements.append(Spacer(1, 20))
 
-    elements.append(Paragraph("Strategic University Roadmap (Ordered by Proximity)", styles['Heading2']))
+    elements.append(Paragraph("Strategic University Roadmap (9-List Strategy)", styles['Heading2']))
     
     for country in state.countries:
         elements.append(Paragraph(f"Regional Focus: {country}", styles['Heading3']))
         c_df = tuned_bench[tuned_bench["Country"].str.strip().str.lower() == country.strip().lower()] if "Country" in tuned_bench.columns else tuned_bench
         
-        # CATEGORY RANKING LOGIC
-        # Safe to Target: Ranked highest match probability first (Gap % nearest to 0 or positive)
-        # Needs Strengthening & Gaps: Ranked nearest to farthest (Gap % nearest to -3 or -15)
+        # DEFINING CATEGORIES WITH SORTING
+        # Safe to Target: Highest Benchmark to Lowest
+        safe_df = c_df[c_df["Gap %"] >= -3].sort_values("Total Benchmark Score", ascending=False)
+        
+        # Needs Strengthening: Lowest Benchmark to Highest
+        needs_df = c_df[(c_df["Gap %"] < -3) & (c_df["Gap %"] >= -15)].sort_values("Total Benchmark Score", ascending=True)
+        
+        # Significant Gaps: Lowest Benchmark to Highest
+        gaps_df = c_df[c_df["Gap %"] < -15].sort_values("Total Benchmark Score", ascending=True)
+
         buckets = [
-            ("Safe to Target", c_df[c_df["Gap %"] >= -3].sort_values("Gap %", ascending=False), colors.darkgreen),
-            ("Needs Strengthening", c_df[(c_df["Gap %"] < -3) & (c_df["Gap %"] >= -15)].sort_values("Gap %", ascending=False), colors.orange),
-            ("Significant Gaps", c_df[c_df["Gap %"] < -15].sort_values("Gap %", ascending=False), colors.red)
+            ("Safe to Target", safe_df, colors.darkgreen),
+            ("Needs Strengthening", needs_df, colors.orange),
+            ("Significant Gaps", gaps_df, colors.red)
         ]
 
         for title, df_cat, color in buckets:
             elements.append(Paragraph(title, ParagraphStyle('B', parent=styles['Heading4'], textColor=color)))
             if not df_cat.empty:
                 data = [["University", "Target Score", "Gap %"]]
-                for _, r in df_cat.head(8).iterrows():
+                for _, r in df_cat.head(10).iterrows():
                     data.append([r["University"], str(round(r["Total Benchmark Score"], 1)), f"{round(r['Gap %'], 1)}%"])
                 t = Table(data, colWidths=[300, 80, 70])
                 t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0), color), ('TEXTCOLOR',(0,0),(-1,0), colors.whitesmoke), ('GRID',(0,0),(-1,-1),0.5,colors.black)]))
@@ -117,7 +124,7 @@ if st.session_state.page == 'intro':
         st.markdown('<div class="card">', unsafe_allow_html=True)
         name = st.text_input("Student Name")
         country_list = ["USA", "UK", "Canada", "Singapore", "Australia", "Europe"]
-        pref_countries = st.multiselect("Select 3 Target Countries", country_list, max_selections=3)
+        pref_countries = st.multiselect("Select Target Countries", country_list, max_selections=3)
         course = st.selectbox("Interested Major", list(q_map.keys()))
         if st.button("Start Analysis"):
             if name and pref_countries:
@@ -148,15 +155,13 @@ elif st.session_state.page == 'assessment':
         
         if st.button("Finalize & View Comparisons"):
             b_sheet = b_map[st.session_state.course]
-            if "finance" in b_sheet.lower() and "eco" in b_sheet.lower(): b_sheet = "benchmarking_finance&economic"
-            
             bench_raw = pd.read_excel("Benchmarking_USA (3) (2).xlsx", sheet_name=b_sheet)
             st.session_state.update({"current_total": current_score, "current_responses": current_responses, "bench_raw": bench_raw, "page": 'tuner'})
             st.rerun()
 
     with col_right:
         st.markdown(f"<div class='score-box'><h3>Current Score</h3><h1>{round(current_score, 1)}</h1></div>", unsafe_allow_html=True)
-        st.markdown("")
+        
         st.info("Profiles are benchmarked against 10 critical domains of international admission.")
 
 elif st.session_state.page == 'tuner':
@@ -199,7 +204,6 @@ elif st.session_state.page == 'tuner':
             cb = curr_b[curr_b["Country"].str.strip().str.lower() == country.strip().lower()] if "Country" in curr_b.columns else curr_b
             pb = plan_b[plan_b["Country"].str.strip().str.lower() == country.strip().lower()] if "Country" in plan_b.columns else plan_b
             
-            # SIDE-BY-SIDE NUMERICAL COMPARISON
             c1, c2, c3 = st.columns(3)
             with c1: 
                 st.markdown(f"<p class='comparison-label'>Safe to Target</p>", unsafe_allow_html=True)
