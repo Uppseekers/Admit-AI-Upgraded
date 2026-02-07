@@ -7,6 +7,18 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 
+QUESTION_COLUMNS = [f"Q{i}" for i in range(1, 11)]
+
+# Country calibration: multiplier >1 means the factor is more important in that market.
+COUNTRY_WEIGHT_PROFILES = {
+    "USA": {"Q1": 1.10, "Q5": 1.15, "Q8": 1.10, "Q9": 1.10, "Q10": 1.05},
+    "UK": {"Q1": 1.35, "Q2": 1.10, "Q3": 1.05, "Q5": 0.75, "Q8": 0.70, "Q9": 0.75, "Q10": 0.75},
+    "Canada": {"Q1": 1.20, "Q5": 0.95, "Q8": 1.00, "Q9": 1.05, "Q10": 1.05},
+    "Singapore": {"Q1": 1.30, "Q2": 1.15, "Q3": 1.05, "Q5": 0.80, "Q8": 0.85, "Q9": 0.90, "Q10": 0.90},
+    "Australia": {"Q1": 1.20, "Q5": 0.90, "Q8": 0.95, "Q9": 1.00, "Q10": 1.00},
+    "Europe": {"Q1": 1.25, "Q2": 1.10, "Q3": 1.05, "Q5": 0.90, "Q8": 0.95, "Q9": 0.95, "Q10": 0.95}
+}
+
 # ─────────────────────────────────────────────
 # 1. APP CONFIG & UI STYLING
 # ─────────────────────────────────────────────
@@ -49,6 +61,53 @@ def load_resources():
     except Exception as e:
         st.error(f"System Error: Failed to parse mappings. {e}")
         return {}, {}
+
+
+def get_country_question_weights(country):
+    weights = {q_col: 1.0 for q_col in QUESTION_COLUMNS}
+    weights.update(COUNTRY_WEIGHT_PROFILES.get(country, {}))
+    return weights
+
+
+def calculate_weighted_student_score(responses, q_df, country):
+    """Returns country-calibrated profile score on a 0-100 scale."""
+    weights = get_country_question_weights(country)
+    response_map = {int(q_id): score for _, _, score, q_id in responses}
+    weighted_earned, weighted_max = 0.0, 0.0
+
+    for i in range(1, 11):
+        q_col = f"Q{i}"
+        weight = weights[q_col]
+        row = q_df[q_df["question_id"] == i]
+        if row.empty:
+            continue
+        max_score = max([row.iloc[0].get(f"score_{opt}", 0) for opt in "ABCDE" if pd.notna(row.iloc[0].get(f"score_{opt}"))], default=0)
+        earned = response_map.get(i, 0)
+        weighted_earned += earned * weight
+        weighted_max += max_score * weight
+
+    if weighted_max == 0:
+        return 0.0
+    return (weighted_earned / weighted_max) * 100
+
+
+def apply_country_benchmark_weighting(bench_df, student_total, country):
+    """Apply country-specific weighting to both benchmark rows and student score."""
+    weighted_df = bench_df.copy()
+    weights = get_country_question_weights(country)
+
+    weighted_df["Weighted Benchmark Score"] = 0.0
+    for q_col in QUESTION_COLUMNS:
+        if q_col in weighted_df.columns:
+            weighted_df["Weighted Benchmark Score"] += weighted_df[q_col] * weights[q_col]
+
+    benchmark_total = weighted_df[QUESTION_COLUMNS].fillna(0).sum(axis=1).mean() if set(QUESTION_COLUMNS).issubset(weighted_df.columns) else weighted_df["Total Benchmark Score"].mean()
+    weighted_total = weighted_df["Weighted Benchmark Score"].mean() if not weighted_df.empty else student_total
+    student_weighted_total = student_total * (weighted_total / benchmark_total) if benchmark_total else student_total
+
+    weighted_df["Gap %"] = ((student_weighted_total - weighted_df["Weighted Benchmark Score"]) / weighted_df["Weighted Benchmark Score"]) * 100
+    weighted_df["Total Benchmark Score"] = weighted_df["Weighted Benchmark Score"]
+    return weighted_df, student_weighted_total
 
 # ─────────────────────────────────────────────
 # 3. PDF GENERATOR (STRATEGIC SORTING)
@@ -161,8 +220,12 @@ elif st.session_state.page == 'assessment':
 
     with col_right:
         st.markdown(f"<div class='score-box'><h3>Current Score</h3><h1>{round(current_score, 1)}</h1></div>", unsafe_allow_html=True)
-        
-        st.info("Profiles are benchmarked against 10 critical domains of international admission.")
+        st.markdown("#### 🌍 Country-Calibrated Score Preview")
+        for country in st.session_state.countries:
+            calibrated = calculate_weighted_student_score(current_responses, q_df, country)
+            st.metric(f"{country} Fit Score", round(calibrated, 1))
+
+        st.info("Profiles are benchmarked across 10 domains, then calibrated by country-specific admission behavior.")
 
 elif st.session_state.page == 'tuner':
     st.title("⚖️ Strategic Comparison Dashboard")
@@ -188,33 +251,37 @@ elif st.session_state.page == 'tuner':
     with col_stats:
         st.subheader("📊 Strategic Impact Analysis")
         
-        curr_b = st.session_state.bench_raw.copy()
-        curr_b["Gap %"] = ((st.session_state.current_total - curr_b["Total Benchmark Score"]) / curr_b["Total Benchmark Score"]) * 100
-        plan_b = st.session_state.bench_raw.copy()
-        plan_b["Gap %"] = ((tuned_score - plan_b["Total Benchmark Score"]) / plan_b["Total Benchmark Score"]) * 100
-
         m1, m2 = st.columns(2)
-        m1.metric("Current Score", round(st.session_state.current_total, 1))
-        m2.metric("Strategic Score", round(tuned_score, 1), delta=f"+{round(tuned_score - st.session_state.current_total, 1)}")
+        m1.metric("Current Raw Score", round(st.session_state.current_total, 1))
+        m2.metric("Strategic Raw Score", round(tuned_score, 1), delta=f"+{round(tuned_score - st.session_state.current_total, 1)}")
 
         st.divider()
-        
+        weighted_plan_frames = []
+
         for country in st.session_state.countries:
+            country_bench = st.session_state.bench_raw[st.session_state.bench_raw["Country"].str.strip().str.lower() == country.strip().lower()] if "Country" in st.session_state.bench_raw.columns else st.session_state.bench_raw
+            curr_country, curr_weighted = apply_country_benchmark_weighting(country_bench, st.session_state.current_total, country)
+            plan_country, plan_weighted = apply_country_benchmark_weighting(country_bench, tuned_score, country)
+            weighted_plan_frames.append(plan_country)
+
             st.markdown(f"#### 🚩 {country} University Counts")
-            cb = curr_b[curr_b["Country"].str.strip().str.lower() == country.strip().lower()] if "Country" in curr_b.columns else curr_b
-            pb = plan_b[plan_b["Country"].str.strip().str.lower() == country.strip().lower()] if "Country" in plan_b.columns else plan_b
-            
+            x1, x2 = st.columns(2)
+            x1.metric(f"{country} Current Fit Score", round(curr_weighted, 1))
+            x2.metric(f"{country} Strategic Fit Score", round(plan_weighted, 1), delta=f"+{round(plan_weighted - curr_weighted, 1)}")
+
             c1, c2, c3 = st.columns(3)
-            with c1: 
+            with c1:
                 st.markdown(f"<p class='comparison-label'>Safe to Target</p>", unsafe_allow_html=True)
-                st.markdown(f"<p class='comparison-val'>{len(cb[cb['Gap %'] >= -3])} → {len(pb[pb['Gap %'] >= -3])}</p>", unsafe_allow_html=True)
-            with c2: 
+                st.markdown(f"<p class='comparison-val'>{len(curr_country[curr_country['Gap %'] >= -3])} → {len(plan_country[plan_country['Gap %'] >= -3])}</p>", unsafe_allow_html=True)
+            with c2:
                 st.markdown(f"<p class='comparison-label'>Needs Strengthening</p>", unsafe_allow_html=True)
-                st.markdown(f"<p class='comparison-val'>{len(cb[(cb['Gap %'] < -3) & (cb['Gap %'] >= -15)])} → {len(pb[(pb['Gap %'] < -3) & (pb['Gap %'] >= -15)])}</p>", unsafe_allow_html=True)
-            with c3: 
+                st.markdown(f"<p class='comparison-val'>{len(curr_country[(curr_country['Gap %'] < -3) & (curr_country['Gap %'] >= -15)])} → {len(plan_country[(plan_country['Gap %'] < -3) & (plan_country['Gap %'] >= -15)])}</p>", unsafe_allow_html=True)
+            with c3:
                 st.markdown(f"<p class='comparison-label'>Significant Gaps</p>", unsafe_allow_html=True)
-                st.markdown(f"<p class='comparison-val'>{len(cb[cb['Gap %'] < -15])} → {len(pb[pb['Gap %'] < -15])}</p>", unsafe_allow_html=True)
+                st.markdown(f"<p class='comparison-val'>{len(curr_country[curr_country['Gap %'] < -15])} → {len(plan_country[plan_country['Gap %'] < -15])}</p>", unsafe_allow_html=True)
             st.divider()
+
+        plan_b = pd.concat(weighted_plan_frames, ignore_index=True) if weighted_plan_frames else st.session_state.bench_raw.copy()
 
     st.subheader("📥 Secure Report Authorization")
     c_name = st.text_input("Counsellor Name")
