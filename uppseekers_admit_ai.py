@@ -8,47 +8,48 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 
 # ─────────────────────────────────────────────
-# 1. DATA & DNA CONFIGURATION
+# 1. GLOBAL REGIONAL WEIGHTING MATRIX (DNA)
 # ─────────────────────────────────────────────
 REGIONAL_WEIGHTS = {
-    "USA": [0.20, 0.10, 0.05, 0.05, 0.15, 0.05, 0.20, 0.10, 0.05, 0.05],
-    "UK": [0.25, 0.10, 0.05, 0.05, 0.30, 0.02, 0.10, 0.03, 0.00, 0.10],
-    "Germany": [0.35, 0.10, 0.05, 0.05, 0.05, 0.00, 0.35, 0.00, 0.00, 0.05],
-    "Singapore": [0.30, 0.10, 0.10, 0.15, 0.10, 0.02, 0.15, 0.03, 0.00, 0.05],
-    "Australia": [0.30, 0.10, 0.10, 0.05, 0.10, 0.05, 0.20, 0.05, 0.00, 0.05],
-    "Canada": [0.25, 0.10, 0.05, 0.05, 0.15, 0.05, 0.20, 0.10, 0.00, 0.05],
-    "Netherlands": [0.35, 0.15, 0.05, 0.05, 0.10, 0.00, 0.25, 0.00, 0.00, 0.05],
-    "European Countries": [0.30, 0.15, 0.05, 0.05, 0.10, 0.05, 0.20, 0.05, 0.00, 0.05],
-    "Japan": [0.40, 0.10, 0.10, 0.10, 0.10, 0.00, 0.10, 0.05, 0.00, 0.05],
-    "Other Asian": [0.40, 0.10, 0.15, 0.10, 0.05, 0.02, 0.10, 0.03, 0.00, 0.05]
+    "USA":               [0.20, 0.10, 0.05, 0.05, 0.15, 0.05, 0.20, 0.10, 0.05, 0.05],
+    "UK":                [0.25, 0.10, 0.05, 0.05, 0.30, 0.02, 0.10, 0.03, 0.00, 0.10],
+    "Germany":           [0.35, 0.10, 0.05, 0.05, 0.05, 0.00, 0.35, 0.00, 0.00, 0.05],
+    "Singapore":         [0.30, 0.10, 0.10, 0.15, 0.10, 0.02, 0.15, 0.03, 0.00, 0.05],
+    "Australia":         [0.30, 0.10, 0.10, 0.05, 0.10, 0.05, 0.20, 0.05, 0.00, 0.05],
+    "Canada":            [0.25, 0.10, 0.05, 0.05, 0.15, 0.05, 0.20, 0.10, 0.00, 0.05],
+    "Netherlands":       [0.35, 0.15, 0.05, 0.05, 0.10, 0.00, 0.25, 0.00, 0.00, 0.05],
+    "European Countries":[0.30, 0.15, 0.05, 0.05, 0.10, 0.05, 0.20, 0.05, 0.00, 0.05],
+    "Japan":             [0.40, 0.10, 0.10, 0.10, 0.10, 0.00, 0.10, 0.05, 0.00, 0.05],
+    "Other Asian":       [0.40, 0.10, 0.15, 0.10, 0.05, 0.02, 0.10, 0.03, 0.00, 0.05]
 }
 
 CATEGORIES = ["Academics", "Rigor", "Testing", "Merit", "Research", "Engagement", "Experience", "Impact", "Public Voice", "Recognition"]
 
 # ─────────────────────────────────────────────
-# 2. HELPER FUNCTIONS (FILE SEARCH & SCORING)
+# 2. HELPER FUNCTIONS
 # ─────────────────────────────────────────────
-def find_file(keyword):
-    """Scans the directory for a file containing the specific keyword."""
-    for f in os.listdir("."):
-        if keyword.lower() in f.lower() and f.endswith(".csv"):
+def find_csv_by_keyword(keyword):
+    """Finds any CSV file in the current directory containing the keyword."""
+    files = [f for f in os.listdir(".") if f.endswith(".csv")]
+    for f in files:
+        if keyword.lower() in f.lower():
             return f
     return None
 
 def calculate_regional_score(responses, country_key, max_scores):
     weights = REGIONAL_WEIGHTS.get(country_key, [0.1]*10)
-    earned = sum(responses[i][2] * weights[i] for i in range(len(responses)))
-    possible = sum(max_scores[i] * weights[i] for i in range(len(max_scores)))
-    return (earned / possible) * 100 if possible > 0 else 0
+    earned_sum = sum(responses[i][2] * weights[i] for i in range(len(responses)))
+    max_sum = sum(max_scores[i] * weights[i] for i in range(len(max_scores)))
+    return (earned_sum / max_sum) * 100 if max_sum > 0 else 0
 
-def generate_segmented_pdf(state, tuned_scores, counsellor, all_bench):
+def generate_strategic_pdf(state, tuned_scores, counsellor, all_bench):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
     styles = getSampleStyleSheet()
     elements = []
     
     elements.append(Paragraph(f"GLOBAL STRATEGIC ROADMAP: {state['name'].upper()}", styles['Title']))
-    elements.append(Paragraph(f"Major: {state['course']} | Authorized by: {counsellor}", styles['Normal']))
+    elements.append(Paragraph(f"Major: {state['course']} | Consultant: {counsellor}", styles['Normal']))
     elements.append(Spacer(1, 20))
 
     for region in state['regions']:
@@ -69,6 +70,7 @@ def generate_segmented_pdf(state, tuned_scores, counsellor, all_bench):
                 elements.append(Paragraph(title, ParagraphStyle('S', parent=styles['Heading3'], textColor=color)))
                 if not df_s.empty:
                     data = [["University", "Bench Score", "Gap %"]]
+                    # Sort by competitiveness
                     df_disp = df_s.sort_values("Total Benchmark Score", ascending=False).head(10)
                     for _, r in df_disp.iterrows():
                         data.append([r["University"], str(round(r["Total Benchmark Score"], 1)), f"{round(r['Gap %'], 1)}%"])
@@ -76,7 +78,7 @@ def generate_segmented_pdf(state, tuned_scores, counsellor, all_bench):
                     t.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0), color), ('TEXTCOLOR',(0,0),(-1,0), colors.whitesmoke), ('GRID',(0,0),(-1,-1), 0.5, colors.grey)]))
                     elements.append(t)
                 else:
-                    elements.append(Paragraph("No universities currently matching this profile segment.", styles['Italic']))
+                    elements.append(Paragraph("No matches found in this segment.", styles['Italic']))
                 elements.append(Spacer(1, 10))
         elements.append(PageBreak())
     doc.build(elements)
@@ -84,10 +86,11 @@ def generate_segmented_pdf(state, tuned_scores, counsellor, all_bench):
     return buffer
 
 # ─────────────────────────────────────────────
-# 3. STREAMLIT UI
+# 3. MAIN STREAMLIT APP
 # ─────────────────────────────────────────────
 st.set_page_config(page_title="Uppseekers Admit AI", layout="wide")
 
+# Persistent State Management
 if 'page' not in st.session_state: st.session_state.page = 'intro'
 if 'pdf_buffer' not in st.session_state: st.session_state.pdf_buffer = None
 if 'report_ready' not in st.session_state: st.session_state.report_ready = False
@@ -96,7 +99,7 @@ if 'report_ready' not in st.session_state: st.session_state.report_ready = False
 if st.session_state.page == 'intro':
     st.title("🎓 Uppseekers Admit AI")
     name = st.text_input("Student Full Name")
-    course = st.selectbox("Select Major", ["CS/AI", "Data Science and Statistics", "Business and Administration", "Finance and Economics"])
+    course = st.selectbox("Intended Major", ["CS/AI", "Data Science and Statistics", "Business and Administration", "Finance and Economics"])
     regions = st.multiselect("Select Target Regions", list(REGIONAL_WEIGHTS.keys()))
     
     if st.button("Start Assessment"):
@@ -106,11 +109,12 @@ if st.session_state.page == 'intro':
 
 # PAGE 2: ASSESSMENT
 elif st.session_state.page == 'assessment':
-    key_map = {"CS/AI": "set_cs-ai", "Data Science and Statistics": "set_ds-stats", "Business and Administration": "set_business", "Finance and Economics": "set_finance"}
-    file_path = find_file(key_map[st.session_state.course])
+    # Dynamic keyword mapping to find files regardless of prefix
+    file_keywords = {"CS/AI": "set_cs-ai", "Data Science and Statistics": "set_ds-stats", "Business and Administration": "set_business", "Finance and Economics": "set_finance"}
+    file_path = find_csv_by_keyword(file_keywords[st.session_state.course])
     
     if not file_path:
-        st.error(f"Could not find question file for {st.session_state.course}. Check your folder.")
+        st.error(f"Error: Question file for {st.session_state.course} not found in directory.")
         st.stop()
 
     df = pd.read_csv(file_path)
@@ -131,64 +135,68 @@ elif st.session_state.page == 'assessment':
                     opts.append(lbl)
                     v_map[lbl] = row[f"Score {char}"]
             
-            sel = st.selectbox("Current Status", opts, key=f"q_{i}")
+            sel = st.selectbox(f"Select Status (Q{i+1})", opts, key=f"eval_{i}")
             assessment_results.append((row['Specific Question'], sel, v_map[sel], i))
             max_scores.append(row['Score A'])
             st.divider()
 
     with col_m:
-        st.header("Readiness")
+        st.header("Readiness Meters")
         for reg in st.session_state.regions:
             score = calculate_regional_score(assessment_results, reg, max_scores)
-            st.metric(f"{reg}", f"{round(score, 1)}%")
+            st.metric(f"{reg} Readiness", f"{round(score, 1)}%")
             st.progress(score/100)
         
-        if st.button("Move to Strategic Tuner"):
-            bench_key = {"CS/AI": "benchmarking_cs", "Data Science and Statistics": "benchmarking_ds", "Business and Administration": "benchmarking_business", "Finance and Economics": "benchmarking_finance"}
-            bench_file = find_file(bench_key[st.session_state.course])
+        if st.button("Proceed to Strategic Tuner"):
+            bench_keywords = {"CS/AI": "benchmarking_cs", "Data Science and Statistics": "benchmarking_ds", "Business and Administration": "benchmarking_business", "Finance and Economics": "benchmarking_finance"}
+            bench_file = find_csv_by_keyword(bench_keywords[st.session_state.course])
             if bench_file:
                 st.session_state.update({"res": assessment_results, "max": max_scores, "b_df": pd.read_csv(bench_file), "page": 'tuner'})
                 st.rerun()
             else:
-                st.error("Benchmarking file missing.")
+                st.error("Benchmarking data file not found.")
 
-# PAGE 3: TUNER & REPORT
+# PAGE 3: STRATEGIC TUNER & DOWNLOAD
 elif st.session_state.page == 'tuner':
-    st.title("⚖️ Strategic Tuner")
+    st.title("⚖️ Strategic Comparison Tuner")
     col_t, col_stats = st.columns([0.5, 0.5])
     
     with col_t:
-        st.subheader("Simulate Improvements")
+        st.subheader("Simulate Profile Improvements")
         tuned_results = []
         for i, (q_text, orig_sel, orig_val, q_idx) in enumerate(st.session_state.res):
             st.write(f"**{CATEGORIES[i]}**")
-            # For logic stability, we pull current value. Add more option logic if needed.
-            t_sel = st.selectbox("Strategic Goal", [orig_sel], key=f"t_{i}")
+            # In the tuner, we maintain the original value for baseline
+            t_sel = st.selectbox(f"Simulate Goal for {CATEGORIES[i]}", [orig_sel], key=f"t_{i}")
             tuned_results.append((q_text, t_sel, orig_val, q_idx))
 
     with col_stats:
-        st.subheader("Global Impact")
+        st.subheader("Global Impact Analysis")
         tuned_scores = {}
         all_bench_data = {}
         for reg in st.session_state.regions:
             p_score = calculate_regional_score(tuned_results, reg, st.session_state.max)
             tuned_scores[reg] = p_score
-            st.metric(f"Projected {reg}", f"{round(p_score,1)}%")
-            
-            bench = st.session_state.b_df.copy()
-            bench["Total Benchmark Score"] = pd.to_numeric(bench["Total Benchmark Score"], errors='coerce').fillna(0)
-            all_bench_data[reg] = bench
+            st.metric(f"Projected {reg} Score", f"{round(p_score,1)}%")
+            all_bench_data[reg] = st.session_state.b_df
             st.divider()
 
-    st.subheader("📥 Final Roadmap")
-    c_name = st.text_input("Counsellor Name")
-    pin = st.text_input("Authorization Code", type="password")
+    st.subheader("📥 Generate Final Strategic Report")
+    c_name = st.text_input("Enter Counsellor Name")
+    pin = st.text_input("Enter Admin PIN", type="password")
 
-    if st.button("Generate Strategic PDF"):
+    if st.button("Authorize & Generate PDF"):
         if pin == "304" and c_name:
-            st.session_state.pdf_buffer = generate_segmented_pdf(st.session_state, tuned_scores, c_name, all_bench_data)
+            st.session_state.pdf_buffer = generate_strategic_pdf(st.session_state, tuned_scores, c_name, all_bench_data)
             st.session_state.report_ready = True
-            st.success("Report Ready!")
+            st.success("Report Generated! Click the button below.")
+        else:
+            st.error("Invalid PIN or Missing Name.")
 
     if st.session_state.report_ready:
-        st.download_button("📥 Download PDF", data=st.session_state.pdf_buffer, file_name=f"{st.session_state.name}_Roadmap.pdf")
+        st.download_button(
+            label="📥 Download Strategic Roadmap PDF",
+            data=st.session_state.pdf_buffer,
+            file_name=f"{st.session_state.name}_Global_Strategy.pdf",
+            mime="application/pdf"
+        )
