@@ -32,7 +32,7 @@ def apply_styles():
 def load_resources():
     try:
         # Load Questions Mapping
-        q_xls = pd.ExcelFile("University Readiness_new.xlsx")
+        q_xls = pd.ExcelFile("University Readiness_new (3).xlsx")
         q_idx = q_xls.parse(q_xls.sheet_names[0])
         q_map = {str(k).strip(): str(v).strip() for k, v in zip(q_idx.iloc[:,0], q_idx.iloc[:,1])}
         
@@ -116,7 +116,7 @@ if st.session_state.page == 'intro':
 
 elif st.session_state.page == 'assessment':
     col_left, col_right = st.columns([0.6, 0.4])
-    q_df = pd.read_excel("University Readiness_new.xlsx", sheet_name=q_map[st.session_state.course])
+    q_df = pd.read_excel("University Readiness_new (3).xlsx", sheet_name=q_map[st.session_state.course])
     
     with col_left:
         st.header(f"Assessment: {st.session_state.course}")
@@ -159,7 +159,7 @@ elif st.session_state.page == 'assessment':
 elif st.session_state.page == 'tuner':
     st.title("⚖️ Strategic Comparison & Tuner")
     col_tune, col_comp = st.columns([0.5, 0.5])
-    q_df = pd.read_excel("University Readiness_new.xlsx", sheet_name=q_map[st.session_state.course])
+    q_df = pd.read_excel("University Readiness_new (3).xlsx", sheet_name=q_map[st.session_state.course])
     
     with col_tune:
         st.subheader("🛠️ Strategic Tuning")
