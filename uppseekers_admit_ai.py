@@ -37,7 +37,7 @@ def load_resources():
         q_map = {str(k).strip(): str(v).strip() for k, v in zip(q_idx.iloc[:,0], q_idx.iloc[:,1])}
         
         # Load Benchmarking Mapping (v3)
-        b_xls = pd.ExcelFile("Benchmarking_USA (3).xlsx")
+        b_xls = pd.ExcelFile("Benchmarking_USA (3) (2).xlsx")
         b_idx = b_xls.parse(b_xls.sheet_names[0])
         # Clean the mapping to prevent KeyErrors
         b_map = {str(k).strip(): str(v).strip() for k, v in zip(b_idx.iloc[:,0], b_idx.iloc[:,1])}
@@ -144,7 +144,7 @@ elif st.session_state.page == 'assessment':
                     bench_sheet = "benchmarking_finance&economic"
                 
                 try:
-                    bench_raw = pd.read_excel("Benchmarking_USA (3).xlsx", sheet_name=bench_sheet)
+                    bench_raw = pd.read_excel("Benchmarking_USA (3) (2).xlsx", sheet_name=bench_sheet)
                     st.session_state.update({"current_total": current_score, "current_responses": current_responses, "bench_raw": bench_raw, "page": 'tuner'})
                     st.rerun()
                 except Exception as e:
